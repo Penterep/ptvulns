@@ -1,0 +1,10 @@
+{
+    "DEPRECATED_CPES_FILE": "~/.penterep/ptvulns/data/deprecated-cpes.json",
+    "NVD_API_KEY": "",
+    "CPE_SEARCH_COUNT": 6,
+    "CPE_SEARCH_THRESHOLD": -1,
+    "DATABASE": {
+        "NAME": "~/.penterep/ptvulns/data/cpe-search-dictionary.db3",
+        "TYPE": "sqlite"
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "DEPRECATED_CPES_FILE": "~/.penterep/ptvulns/data/deprecated-cpes.json",
+    "NVD_API_KEY": "",
+    "CPE_SEARCH_COUNT": 6,
+    "CPE_SEARCH_THRESHOLD": -1,
+    "DATABASE": {
+        "NAME": "cpe_search_dictionary",
+        "TYPE": "mariadb",
+        "HOST": "localhost",
+        "USER": "search_vulns",
+        "PASSWORD": "",
+        "PORT": 3306
+    }
+}
