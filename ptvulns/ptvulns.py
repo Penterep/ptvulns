@@ -142,7 +142,6 @@ class PtVulns:
                 ptprint(f"CVSS Score: {get_colored_text(score, self._get_color_by_score(score))}", "TEXT", not self.args.json, indent=0)
 
                 ptprint(f"CVSS String: {vector}", "TEXT", not self.args.json, indent=0)
-                input(desc)
                 ptprint(f"Description: {desc}\n", "TEXT", not self.args.json, indent=0)
 
                 #node = self.ptjsonlib.create_node_object(node_type="cve", properties={"cve": cve_id, "published": date, "score": score, "description": desc})
