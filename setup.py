@@ -25,7 +25,7 @@ setuptools.setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)"
     ],
     python_requires='>=3.12',
-    install_requires=["ptlibs>=1.0.47,<2", "ujson", "pyxploitdb", "aiohttp", "aiolimiter"],
+    install_requires=["tqdm", "ptlibs>=1.0.47,<2", "ujson", "pyxploitdb", "aiohttp", "aiolimiter"],
     entry_points = {'console_scripts': ['ptvulns = ptvulns.ptvulns:main']},
     include_package_data= True,
     long_description=long_description,
