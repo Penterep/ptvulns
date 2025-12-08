@@ -12,7 +12,6 @@ from verification import reverifier
 
 from ptlibs.app_dirs import AppDirs
 
-
 def parse_find(args):
     """
     Parse the command-line arguments and process the CPEs.
@@ -57,13 +56,16 @@ def parse_find(args):
             data_for_analysis = []
 
             try:
-                nvd_response = request_handler.handle_nvd_request(value)
-                norm_nvd_response = normalizer.normalize_nvd(nvd_response)
+                nvd_response = request_handler.handle_nvd_request(value) # response json or none
+                norm_nvd_response = normalizer.normalize_nvd(nvd_response) # list (parsed cves from json)
+                """
                 if args.without_details:
                     norm_mitre_response = request_handler.get_cpe_response(value)
                 else:
                     mitre_response = request_handler.handle_mitre_request(value)
                     norm_mitre_response = normalizer.normalize_mitre(mitre_response)
+                """
+                norm_mitre_response = []
 
                 # osv_response = request_handler.handle_osv_request(value)
                 # norm_osv_response = normalizer.normalize_osv(osv_response)
@@ -73,10 +75,10 @@ def parse_find(args):
                 analyzed = data_processing.merge(data_for_analysis)
                 evaluated = data_processing.evaluate(analyzed)
                 unified_output = data_processing.unify(evaluated)
-
+                #input(unified_output)
                 # Add to combined JSON report
                 combined_json_report[value] = unified_output
-
+    
                 # Generate HTML report
                 """
                 html_report = generate_report.generate_html_report(unified_output)

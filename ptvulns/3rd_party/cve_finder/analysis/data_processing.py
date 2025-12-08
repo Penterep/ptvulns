@@ -53,7 +53,7 @@ def merge(cve_data):
     return analyzed
 
 
-def evaluate(analyzed_data):
+def evaluate(analyzed_data) -> dict:
     """
     Evaluate merged CVE data to verify and select the most reliable information.
 
@@ -251,11 +251,9 @@ def unify(evaluated_data):
                                     "verified_by": cwe.get("verified_by", []),
                                 }
                             )
-
+                            """
                             try:
-                                cwe_response = request_handler.handle_cwe_request(
-                                    cwe_id
-                                )
+                                cwe_response = request_handler.handle_cwe_request(cwe_id)
                                 cwe_info = normalizer.normalize_cwe(cwe_response)
                                 cwe_metadata.extend(cwe_info.values())
                                 sources.add("cwe-database")
@@ -265,6 +263,7 @@ def unify(evaluated_data):
                                     f"CWE normalization failed for {cwe_id}: {e}",
                                     exc_info=True,
                                 )
+                            """
 
                         sources.update(cwe.get("verified_by", []))
 
@@ -286,6 +285,7 @@ def unify(evaluated_data):
             if cwe_metadata:
                 unified_entry["cwe_metadata"] = cwe_metadata
 
+            """
             # Get exploit information
             try:
                 exploit_response = request_handler.handle_exploit_request(cve_id)
@@ -300,7 +300,7 @@ def unify(evaluated_data):
                     f"Exploit normalization failed for {cve_id}: {e}", exc_info=True
                 )
                 unified_entry["exploit"] = {}
-
+            """
             unified_entry["sources"] = list(sources)
             unified_list.append(unified_entry)
 

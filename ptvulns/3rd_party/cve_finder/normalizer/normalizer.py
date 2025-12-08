@@ -34,12 +34,15 @@ def normalize_nvd(response):
             if "cvssMetricV31" in metrics:
                 score = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
                 vector = metrics["cvssMetricV31"][0]["cvssData"]["vectorString"]
+                exploitability_score = metrics["cvssMetricV31"][0]["exploitabilityScore"]
             elif "cvssMetricV30" in metrics:
                 score = metrics["cvssMetricV30"][0]["cvssData"]["baseScore"]
                 vector = metrics["cvssMetricV30"][0]["cvssData"]["vectorString"]
+                exploitability_score = metrics["cvssMetricV30"][0]["exploitabilityScore"]
             elif "cvssMetricV2" in metrics:
                 score = metrics["cvssMetricV2"][0]["cvssData"]["baseScore"]
                 vector = metrics["cvssMetricV2"][0]["cvssData"]["vectorString"]
+                exploitability_score = metrics["cvssMetricV2"][0]["exploitabilityScore"]
 
             weaknesses = cve_data.get("weaknesses", [])
             cwe_ids = []
@@ -53,7 +56,7 @@ def normalize_nvd(response):
                 cwe_ids = ["Unknown"]
 
             cve = Cve(
-                source_db, cve_id, date_published, description, score, vector, cwe_ids
+                source_db, cve_id, date_published, description, score, vector, cwe_ids, exploitability_score
             )
             norm_response.append(cve)
         except Exception as e:
