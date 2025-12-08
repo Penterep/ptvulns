@@ -64,6 +64,7 @@ class PtVulns:
             ptprint(f"Updating cpe-db file:", "TITLE", (not self.args.json), colortext=True)
             result = self.call_external_script([sys.executable, cpe_search_path, "--update", "--verbose"])
             return
+
         if not self.is_cpe(cpe):
             # call string to automat that creates cpe and return the cpe string
             cpe_search_path = os.path.join(self.current_dir, '3rd_party', 'cpe_search', 'cpe_search.py')
@@ -118,33 +119,74 @@ class PtVulns:
 
         for cpe in cpe_list:
             entries = data.get(cpe, [])
-            if entries:
-                self.ptjsonlib.add_vulnerability("PTV-WEB-SW-KNOWNVULN")
-            for entry in entries:
+            #if entries:
+            #    self.ptjsonlib.add_vulnerability("PTV-WEB-SW-KNOWNVULN")
+            for entry in sorted(entries, key=lambda e: e["score"]["average"], reverse=True):
                 cve_id = entry["id"]["selected"]
-                date = entry["date_published"]["selected"]
+                date = entry["date_published"]["selected"].split("T")[0]
                 score = entry["score"]["average"]
+                exploitability_score = entry["exploitability_score"]["selected"]["selected"]
                 desc = entry["desc"]["selected"]
                 #vector = (lambda d: {next(iter(d)): d[next(iter(d))]} if d else None)(entry["vector"].get("values", {}))
                 vector = next(iter(entry["vector"].get("values", {}).values()), None)
                 cwe = entry["cwe_id"][0].get("id") if entry.get("cwe_id") else None
+                severity = "vulnSeverity" + self.get_severity(score)
 
-                ptprint(f"CVE: {cve_id}", "TEXT", not self.args.json, indent=0)
+                ptprint(get_colored_text(f"CVE: {cve_id}", "TITLE"), "TEXT", not self.args.json, indent=0)
                 ptprint(f"Published: {date}", "TEXT", not self.args.json, indent=0)
-                ptprint(f"Score: {score}", "TEXT", not self.args.json, indent=0)
+
+                #ptprint(f"Exploitability Score: {exploitability_score}", "TEXT", not self.args.json, indent=0)
+                #ptprint(f"CVSS Score: {score}", "TEXT", not self.args.json, indent=0)
+
+                ptprint(f"Exploitability Score: {get_colored_text(exploitability_score, self._get_color_by_score(exploitability_score))}", "TEXT", not self.args.json, indent=0)
+                ptprint(f"CVSS Score: {get_colored_text(score, self._get_color_by_score(score))}", "TEXT", not self.args.json, indent=0)
+
+                ptprint(f"CVSS String: {vector}", "TEXT", not self.args.json, indent=0)
+                input(desc)
                 ptprint(f"Description: {desc}\n", "TEXT", not self.args.json, indent=0)
 
                 #node = self.ptjsonlib.create_node_object(node_type="cve", properties={"cve": cve_id, "published": date, "score": score, "description": desc})
                 if self.args.group_vulns:
-                    grouped_result += f"{cve_id}, CVSS Score: ?, CVSS Vector: {vector}\n\n{desc.lstrip()}\n\n"
+                    grouped_result += f"**{cve_id}**, CVSS Score: **{score}**, CVSS Vector: **{vector}**\n\n{desc.lstrip()}\n\n"
                 else:
-                    self.ptjsonlib.add_vulnerability(vuln_code=cve_id, name=cve_id, description=desc, causes=None, displays=None, impacts=None, recommendation=None, location=self.args.search, scoring=vector or score, severity=None, cve=None, cwe=cwe)
+                    self.ptjsonlib.add_vulnerability(vuln_code=cve_id, name=cve_id, description=desc, causes=None, displays=None, impacts=None, recommendation=None, location=self.args.search, scoring=vector or score, severity=severity, cve=cve_id, cwe=cwe)
                 #self.ptjsonlib.add_node(node)
 
+            if entries:
+                ptprint(f"Retrieved {len(entries)} CVEs for CPE: {cpe}", "INFO", (not self.args.json) and self.args.verbose, colortext=True, newline_above=True, clear_to_eol=True)
+
         if self.args.group_vulns:
-            self.ptjsonlib.add_vulnerability(vuln_code=cve_id, displays=grouped_result)
+            self.ptjsonlib.add_vulnerability(vuln_code="PTV-WEB-SW-KNOWNVULN", displays=grouped_result)
 
         #os.remove(file_path) # remove the file
+
+    def _get_color_by_score(self, score):
+        if score >= 8:
+            return "VULN"
+        elif score > 6:
+            return "TITLE"
+        else:
+            return "TEXT"
+
+    def get_severity(self, score):
+        """
+        Determine the severity level based on the CVSS score.
+        """
+        try:
+            score = float(score)
+            if score >= 9.0:
+                return "Critical"
+            elif score >= 7.0:
+                return "High"
+            elif score >= 4.0:
+                return "Medium"
+            elif score > 0.0:
+                return "Low"
+            else:
+                return "None"
+        except Exception:
+            return "Unknown"
+
 
     def get_latest_combined_report_path(self):
         # list all files starting with "combined_report_"
@@ -270,7 +312,7 @@ def get_help():
             ["-s",  "--search",                 "<search>",         "Search string for vulns"],
             ["-vv", "--verbose",                "",                 "Show verbose output"],
             ["-U",  "--update",                "",                  "Update CPE db"],
-            ["-wd", "--without-details",                "",         "Show CVE without additional requests"],
+            #["-wd", "--without-details",                "",         "Show CVE without additional requests"],
             ["-gv", "--group-vulns",                "",             "Group vulnerabilities for JSON"],
             ["-v",  "--version",                "",                 "Show script version and exit"],
             ["-h",  "--help",                   "",                 "Show this help message and exit"],
