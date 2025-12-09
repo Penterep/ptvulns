@@ -220,19 +220,36 @@ def intermediate_process(api_data, requestno):
     cpes = []
     deprecations = []
     for product in products:
-        extracted_title = ""
-        deprecated = product["cpe"]["deprecated"]
-        cpe_name = product["cpe"]["cpeName"]
-        for title in product["cpe"]["titles"]:
-            # assume an english title is always present
-            if title["lang"] == "en":
-                extracted_title = title["title"]
-        if deprecated:
-            deprecated_by = {cpe_name: []}
-            for item in product["cpe"]["deprecatedBy"]:
-                deprecated_by[cpe_name].append(item.get("cpeName"))
-            deprecations.append(deprecated_by)
-        cpes.append(str(cpe_name + ";" + extracted_title + ";"))
+        try:
+            extracted_title = ""
+            deprecated = product["cpe"].get("deprecated", False)
+            cpe_name = product["cpe"]["cpeName"]
+            
+            # Safely extract title
+            for title in product["cpe"].get("titles", []):
+                # assume an english title is always present
+                if title.get("lang") == "en":
+                    extracted_title = title.get("title", "")
+                    break
+            
+            if deprecated:
+                deprecated_by = {cpe_name: []}
+                # Check if deprecatedBy field exists before accessing it
+                if "deprecatedBy" in product["cpe"]:
+                    for item in product["cpe"]["deprecatedBy"]:
+                        deprecated_by[cpe_name].append(item.get("cpeName"))
+                deprecations.append(deprecated_by)
+            cpes.append(str(cpe_name + ";" + extracted_title + ";"))
+        except KeyError as e:
+            # Skip products with malformed data
+            if DEBUG:
+                print(f"[!] Skipping product due to missing key: {e}")
+            continue
+        except Exception as e:
+            # Skip products with any other error
+            if DEBUG:
+                print(f"[!] Skipping product due to error: {e}")
+            continue
     return cpes, deprecations
 
 
@@ -398,9 +415,12 @@ async def worker(headers, params, requestno, rate_limit, stop_update=[]):
             return cpe_infos, deprecations
         except Exception as e:
             if UPDATE_SUCCESS and not SILENT:
+                import traceback
                 print(
                     "Got the following exception when downloading CPE data via API: %s" % str(e)
                 )
+                if DEBUG:
+                    traceback.print_exc()
             UPDATE_SUCCESS = False
             return None
     else:
@@ -1317,6 +1337,7 @@ if __name__ == "__main__":
         SILENT = False
 
     perform_update = False
+    update_failed = False
     if args.update:
         perform_update = True
 
@@ -1339,14 +1360,26 @@ if __name__ == "__main__":
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(update(args.api_key, config))
+        update_result = loop.run_until_complete(update(args.api_key, config))
 
-        if not UPDATE_SUCCESS:
+        if not UPDATE_SUCCESS or not update_result:
             print("[-] Failed updating the local CPE database!")
+            update_failed = True
+            # Clean up incomplete database
+            db_type = config["DATABASE"]["TYPE"]
+            db_name = config["DATABASE"]["NAME"]
+            if db_type == "sqlite" and os.path.isfile(db_name):
+                try:
+                    os.remove(db_name)
+                    print("[*] Removed incomplete database file. Please try running the update again.")
+                except Exception as e:
+                    print(f"[!] Could not remove incomplete database: {e}")
+            # Exit to prevent using incomplete database
+            sys.exit(1)
         else:
             print("[+] Update OK")
 
-    if args.queries:
+    if args.queries and not update_failed:
         results = {}
         for query in args.queries:
             results[query] = search_cpes(query, None, args.number, -1, config).get("cpes", [])

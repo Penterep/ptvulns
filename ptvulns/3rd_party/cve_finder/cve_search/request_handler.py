@@ -1,7 +1,7 @@
 import requests
 import json
 import re
-import pyxploitdb
+# import pyxploitdb  # Commented out - not used, and causes long download on first run
 import logging
 import time
 import config
@@ -261,12 +261,18 @@ def handle_exploit_request(cve):
     start_time = time.time()
 
     try:
+        # Lazy import to avoid downloading exploitdb on every script run
+        import pyxploitdb
+        
         exploit = pyxploitdb.searchCVE(cve)
         if exploit:
             pass#logging.info(f"ExploitDB data fetched successfully for {cve} in {time.time() - start_time:.2f}s")
         else:
             pass#logging.info(f"No ExploitDB available for {cve}")
         return exploit
+    except ImportError:
+        logging.warning("pyxploitdb not available - skipping exploit search")
+        return None
     except Exception as e:
         logging.error(f"ExploitDB request failed for CVE {cve}: {e}", exc_info=True)
         return None

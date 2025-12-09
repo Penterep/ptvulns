@@ -83,10 +83,21 @@ class PtVulns:
 
         result = self.call_external_script(cve_args)
 
-        if not result or "Retrieved 0 CVEs".lower() in result.lower():
+        # Check if report was generated instead of relying on text output
+        # (progress bars can overwrite the "Retrieved X CVEs" message)
+        try:
+            path = self.get_latest_combined_report_path()
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                cpe_list = data.get("cpe_list", [])
+                has_cves = any(data.get(cpe) for cpe in cpe_list)
+                
+                if not has_cves:
+                    self.ptjsonlib.end_ok("0 CVEs found", self.args.json, bullet_type=None)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            if "Retrieved 0 CVEs".lower() not in result.lower():
+                self.ptjsonlib.end_error(f"Failed to process CVE data: {e}", self.args.json)
             self.ptjsonlib.end_ok("0 CVEs found", self.args.json, bullet_type=None)
-
-        path = self.get_latest_combined_report_path()
 
         ptprint(f"CVE report:", "TITLE", (not self.args.json) and self.args.verbose, colortext=True, newline_above=True, clear_to_eol=True)
         self.print_cve_report(path)
@@ -205,8 +216,16 @@ class PtVulns:
         if result:
             if "could not find software for query:" in result.lower():
                 self.ptjsonlib.end_error(f"No CPE found for query: {self.args.search}", condition=self.args.json)
-            cpe = result.strip().split("\n")[0]
-            return cpe
+            
+            # Find the line that contains the CPE (starts with "cpe:2.3:")
+            # This is necessary because the output may contain progress messages before the actual CPE
+            for line in result.strip().split("\n"):
+                line = line.strip()
+                if line.startswith("cpe:2.3:"):
+                    return line
+            
+            # If no CPE found in output, return error
+            self.ptjsonlib.end_error(f"No CPE found in output for query: {self.args.search}", condition=self.args.json)
         else:
             self.ptjsonlib.end_error(f"Error parsing CPE from query: {self.args.search}", condition=self.args.json)
 
@@ -247,6 +266,7 @@ class PtVulns:
 
         output_lines = []
         buffer = ''
+        current_line = ''  # Track the current line being built (for \r handling)
         do_print = getattr(self.args, "verbose", False) and not getattr(self.args, "json", False)
 
         try:
@@ -263,15 +283,42 @@ class PtVulns:
                     if do_print:
                         sys.stdout.write(data)
                         sys.stdout.flush()
-                    # accumulate output
+                    # accumulate output - handle both \n and \r
                     buffer += data
-                    while '\n' in buffer:
-                        line, buffer = buffer.split('\n', 1)
-                        output_lines.append(line + '\n')
+                    
+                    # Process buffer line by line
+                    while '\n' in buffer or '\r' in buffer:
+                        if '\n' in buffer and (buffer.index('\n') < buffer.index('\r') if '\r' in buffer else True):
+                            # Newline comes first - this is a complete line
+                            line, buffer = buffer.split('\n', 1)
+                            current_line += line
+                            if current_line:
+                                output_lines.append(current_line + '\n')
+                            current_line = ''
+                        elif '\r' in buffer:
+                            # Carriage return - line is being overwritten
+                            line, buffer = buffer.split('\r', 1)
+                            current_line += line
+                            # Check if next char is \n (Windows line ending \r\n)
+                            if buffer.startswith('\n'):
+                                buffer = buffer[1:]
+                                if current_line:
+                                    output_lines.append(current_line + '\n')
+                                current_line = ''
+                            else:
+                                # Just \r - overwrite current line
+                                if current_line:
+                                    output_lines.append(current_line + '\n')
+                                current_line = ''
+                        else:
+                            break
+                            
                 # break if process exited and no more data
                 if proc.poll() is not None and not select.select([master_fd], [], [], 0.0)[0]:
                     break
-            # flush remaining buffer
+            # flush remaining buffer and current line
+            if current_line:
+                output_lines.append(current_line)
             if buffer:
                 output_lines.append(buffer)
         finally:
@@ -280,6 +327,14 @@ class PtVulns:
             except Exception:
                 pass
             proc.wait()
+
+        # Check the return code and handle failures
+        if proc.returncode != 0:
+            if self.args.verbose and not self.args.json:
+                ptprint(f"External script failed with exit code: {proc.returncode}", "ERROR", True, colortext=True)
+            # If this was the update or CPE search, we should propagate the error
+            if "--update" in subprocess_args or "-q" in subprocess_args:
+                self.ptjsonlib.end_error("Failed to initialize CPE database. Please try again or check your network connection.", self.args.json)
 
         full_output = ''.join(output_lines)
         return full_output
