@@ -2,6 +2,77 @@ import logging
 from cve_search.cve import Cve
 
 
+def get_preferred_cvss_metric(metrics):
+    for metric_name in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
+        if metric_name in metrics and metrics[metric_name]:
+            primary = next(
+                (m for m in metrics[metric_name] if m.get("type") == "Primary"),
+                None,
+            )
+            return primary or metrics[metric_name][0]
+    return {}
+
+
+def format_cvss_impact(cvss_data):
+    parts = []
+    labels = {
+        "attackVector": "Attack vector",
+        "attackComplexity": "Attack complexity",
+        "privilegesRequired": "Privileges required",
+        "userInteraction": "User interaction",
+        "scope": "Scope",
+        "confidentialityImpact": "Confidentiality impact",
+        "integrityImpact": "Integrity impact",
+        "availabilityImpact": "Availability impact",
+    }
+    for key, label in labels.items():
+        value = cvss_data.get(key)
+        if value not in (None, "Unknown"):
+            parts.append(f"{label}: {value}")
+    return "; ".join(parts)
+
+
+def format_affected_versions(configurations):
+    affected = []
+    fixed_versions = []
+
+    for configuration in configurations:
+        for node in configuration.get("nodes", []):
+            for cpe_match in node.get("cpeMatch", []):
+                if not cpe_match.get("vulnerable"):
+                    continue
+
+                criteria = cpe_match.get("criteria", "Unknown CPE")
+                constraints = []
+                if "versionStartIncluding" in cpe_match:
+                    constraints.append(f">= {cpe_match['versionStartIncluding']}")
+                if "versionStartExcluding" in cpe_match:
+                    constraints.append(f"> {cpe_match['versionStartExcluding']}")
+                if "versionEndIncluding" in cpe_match:
+                    constraints.append(f"<= {cpe_match['versionEndIncluding']}")
+                if "versionEndExcluding" in cpe_match:
+                    constraints.append(f"< {cpe_match['versionEndExcluding']}")
+                    fixed_versions.append(cpe_match["versionEndExcluding"])
+
+                if constraints:
+                    affected.append(f"{criteria} ({', '.join(constraints)})")
+                else:
+                    affected.append(criteria)
+
+    return "; ".join(affected), ", ".join(dict.fromkeys(fixed_versions))
+
+
+def format_references(references):
+    formatted = []
+    for reference in references:
+        url = reference.get("url")
+        if not url:
+            continue
+        tags = reference.get("tags", [])
+        formatted.append(f"{url} ({', '.join(tags)})" if tags else url)
+    return "; ".join(dict.fromkeys(formatted))
+
+
 def normalize_nvd(response):
     """
     Normalize NVD API response into a list of Cve objects.
@@ -30,19 +101,18 @@ def normalize_nvd(response):
             metrics = cve_data.get("metrics", {})
             score = "Unknown"
             vector = "Unknown"
+            exploitability_score = "Unknown"
+            impact_score = "Unknown"
+            cvss_impact = ""
 
-            if "cvssMetricV31" in metrics:
-                score = metrics["cvssMetricV31"][0]["cvssData"]["baseScore"]
-                vector = metrics["cvssMetricV31"][0]["cvssData"]["vectorString"]
-                exploitability_score = metrics["cvssMetricV31"][0]["exploitabilityScore"]
-            elif "cvssMetricV30" in metrics:
-                score = metrics["cvssMetricV30"][0]["cvssData"]["baseScore"]
-                vector = metrics["cvssMetricV30"][0]["cvssData"]["vectorString"]
-                exploitability_score = metrics["cvssMetricV30"][0]["exploitabilityScore"]
-            elif "cvssMetricV2" in metrics:
-                score = metrics["cvssMetricV2"][0]["cvssData"]["baseScore"]
-                vector = metrics["cvssMetricV2"][0]["cvssData"]["vectorString"]
-                exploitability_score = metrics["cvssMetricV2"][0]["exploitabilityScore"]
+            cvss_metric = get_preferred_cvss_metric(metrics)
+            cvss_data = cvss_metric.get("cvssData", {})
+            if cvss_data:
+                score = cvss_data.get("baseScore", "Unknown")
+                vector = cvss_data.get("vectorString", "Unknown")
+                exploitability_score = cvss_metric.get("exploitabilityScore", "Unknown")
+                impact_score = cvss_metric.get("impactScore", "Unknown")
+                cvss_impact = format_cvss_impact(cvss_data)
 
             weaknesses = cve_data.get("weaknesses", [])
             cwe_ids = []
@@ -55,8 +125,25 @@ def normalize_nvd(response):
             if not cwe_ids:
                 cwe_ids = ["Unknown"]
 
+            affected_versions, fixed_versions = format_affected_versions(
+                cve_data.get("configurations", [])
+            )
+            references = format_references(cve_data.get("references", []))
+
             cve = Cve(
-                source_db, cve_id, date_published, description, score, vector, cwe_ids, exploitability_score
+                source_db,
+                cve_id,
+                date_published,
+                description,
+                score,
+                vector,
+                cwe_ids,
+                exploitability_score,
+                impact_score,
+                cvss_impact,
+                affected_versions,
+                fixed_versions,
+                references,
             )
             norm_response.append(cve)
         except Exception as e:

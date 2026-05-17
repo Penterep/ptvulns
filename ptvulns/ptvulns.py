@@ -159,7 +159,20 @@ class PtVulns:
                 if self.args.group_vulns:
                     grouped_result += f"**{cve_id}**, CVSS Score: **{score}**, CVSS Vector: **{vector}**\n\n{desc.lstrip()}\n\n"
                 else:
-                    self.ptjsonlib.add_vulnerability(vuln_code=cve_id, name=cve_id, description=desc, causes=None, displays=None, impacts=None, recommendation=None, location=self.args.search, scoring=vector or score, severity=severity, cve=cve_id, cwe=cwe)
+                    self.ptjsonlib.add_vulnerability(
+                        vuln_code=cve_id,
+                        name=cve_id,
+                        description=desc,
+                        causes=self.build_causes(entry),
+                        displays=None,
+                        impacts=self.build_impacts(entry),
+                        recommendation=self.build_recommendation(entry),
+                        location=self.args.search,
+                        scoring=vector or score,
+                        severity=severity,
+                        cve=cve_id,
+                        cwe=cwe,
+                    )
                 #self.ptjsonlib.add_node(node)
 
             if entries:
@@ -169,6 +182,58 @@ class PtVulns:
             self.ptjsonlib.add_vulnerability(vuln_code="PTV-WEB-SW-KNOWNVULN", displays=grouped_result)
 
         #os.remove(file_path) # remove the file
+
+    def build_causes(self, entry):
+        affected_versions = self.get_entry_value(entry, "affected_versions")
+        if affected_versions:
+            return f"Affected software/version range: {affected_versions}."
+        return None
+
+    def build_impacts(self, entry):
+        parts = []
+        cvss_impact = self.get_entry_value(entry, "cvss_impact")
+        exploitability_score = self.get_entry_value(entry, "exploitability_score")
+        impact_score = self.get_entry_value(entry, "impact_score")
+
+        if cvss_impact:
+            parts.append(f"CVSS details: {cvss_impact}.")
+        if exploitability_score not in (None, "", "Unknown"):
+            parts.append(f"Exploitability score: {exploitability_score}.")
+        if impact_score not in (None, "", "Unknown"):
+            parts.append(f"Impact score: {impact_score}.")
+
+        return " ".join(parts) if parts else None
+
+    def build_recommendation(self, entry):
+        fixed_versions = self.get_entry_value(entry, "fixed_versions")
+        affected_versions = self.get_entry_value(entry, "affected_versions")
+        references = self.get_entry_value(entry, "references")
+        parts = []
+
+        if fixed_versions:
+            parts.append(f"Upgrade affected software to version {fixed_versions} or newer.")
+        elif affected_versions:
+            parts.append("Upgrade affected software to a non-vulnerable version.")
+
+        if references:
+            parts.append(f"Review vendor/security references: {references}.")
+
+        return " ".join(parts) if parts else None
+
+    def get_entry_value(self, entry, field):
+        value = self.unwrap_selected(entry.get(field))
+        if value in ("", "Unknown"):
+            return None
+        return value
+
+    def unwrap_selected(self, value):
+        if isinstance(value, dict):
+            if "selected" in value:
+                return self.unwrap_selected(value["selected"])
+            values = value.get("values")
+            if isinstance(values, dict) and len(values) == 1:
+                return next(iter(values.values()))
+        return value
 
     def _get_color_by_score(self, score):
         if score >= 8:
