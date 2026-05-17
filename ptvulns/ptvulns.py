@@ -28,6 +28,7 @@ import hashlib
 import pty
 import select
 import subprocess
+import sqlite3
 import sys; sys.path.append(__file__.rsplit("/", 1)[0])
 
 from types import ModuleType
@@ -63,7 +64,10 @@ class PtVulns:
             cpe_search_path = os.path.join(self.current_dir, '3rd_party', 'cpe_search', 'cpe_search.py')
             ptprint(f"Updating cpe-db file:", "TITLE", (not self.args.json), colortext=True)
             result = self.call_external_script([sys.executable, cpe_search_path, "--update", "--verbose"])
+            self.print_db_info()
             return
+
+        self.print_db_info()
 
         if not self.is_cpe(cpe):
             # call string to automat that creates cpe and return the cpe string
@@ -89,6 +93,10 @@ class PtVulns:
             path = self.get_latest_combined_report_path()
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
+                errors = data.get("errors", {})
+                if errors:
+                    self.ptjsonlib.end_error("; ".join(errors.values()), self.args.json)
+
                 cpe_list = data.get("cpe_list", [])
                 has_cves = any(data.get(cpe) for cpe in cpe_list)
                 
@@ -124,16 +132,20 @@ class PtVulns:
             data = json.load(f)
 
         cpe_list = data.get("cpe_list", [])
+        cve_stats = {}
 
         if self.args.group_vulns:
             grouped_result: str = ""
 
         for cpe in cpe_list:
             entries = data.get(cpe, [])
+            stats = self.get_cve_stats(entries)
+            cve_stats[cpe] = stats
             #if entries:
             #    self.ptjsonlib.add_vulnerability("PTV-WEB-SW-KNOWNVULN")
-            for entry in sorted(entries, key=lambda e: e["score"]["average"], reverse=True):
+            for entry in sorted(entries, key=self.get_sort_key, reverse=True):
                 cve_id = entry["id"]["selected"]
+                cve_url = f"https://nvd.nist.gov/vuln/detail/{cve_id}"
                 date = entry["date_published"]["selected"].split("T")[0]
                 score = entry["score"]["average"]
                 exploitability_score = entry["exploitability_score"]["selected"]["selected"]
@@ -142,8 +154,10 @@ class PtVulns:
                 vector = next(iter(entry["vector"].get("values", {}).values()), None)
                 cwe = entry["cwe_id"][0].get("id") if entry.get("cwe_id") else None
                 severity = "vulnSeverity" + self.get_severity(score)
+                exploit_references = self.get_exploit_references(entry)
 
                 ptprint(get_colored_text(f"CVE: {cve_id}", "TITLE"), "TEXT", not self.args.json, indent=0)
+                ptprint(f"CVE URL: {cve_url}", "TEXT", not self.args.json, indent=0)
                 ptprint(f"Published: {date}", "TEXT", not self.args.json, indent=0)
 
                 #ptprint(f"Exploitability Score: {exploitability_score}", "TEXT", not self.args.json, indent=0)
@@ -151,6 +165,11 @@ class PtVulns:
 
                 ptprint(f"Exploitability Score: {get_colored_text(exploitability_score, self._get_color_by_score(exploitability_score))}", "TEXT", not self.args.json, indent=0)
                 ptprint(f"CVSS Score: {get_colored_text(score, self._get_color_by_score(score))}", "TEXT", not self.args.json, indent=0)
+                exploit_text = f"Yes ({len(exploit_references)} references)" if exploit_references else "No"
+                ptprint(f"Exploit: {exploit_text}", "TEXT", not self.args.json, indent=0)
+                if exploit_references and self.args.verbose:
+                    for exploit_reference in exploit_references:
+                        ptprint(f"Exploit Reference: {exploit_reference}", "TEXT", not self.args.json, indent=0)
 
                 ptprint(f"CVSS String: {vector}", "TEXT", not self.args.json, indent=0)
                 ptprint(f"Description: {desc}\n", "TEXT", not self.args.json, indent=0)
@@ -158,6 +177,26 @@ class PtVulns:
                 #node = self.ptjsonlib.create_node_object(node_type="cve", properties={"cve": cve_id, "published": date, "score": score, "description": desc})
                 if self.args.group_vulns:
                     grouped_result += f"**{cve_id}**, CVSS Score: **{score}**, CVSS Vector: **{vector}**\n\n{desc.lstrip()}\n\n"
+                elif self.args.cve_nodes:
+                    self.ptjsonlib.add_node(self.ptjsonlib.create_node_object(
+                        node_type="cve",
+                        properties={
+                            "name": cve_id,
+                            "cve": cve_id,
+                            "cveUrl": cve_url,
+                            "published": date,
+                            "description": desc,
+                            "causes": self.build_causes(entry),
+                            "impacts": self.build_impacts(entry),
+                            "recommendation": self.build_recommendation(entry),
+                            "location": self.args.search,
+                            "scoring": vector or score,
+                            "severity": severity,
+                            "cwe": cwe,
+                            "exploitAvailable": bool(exploit_references),
+                            "exploitReferences": exploit_references,
+                        },
+                    ))
                 else:
                     self.ptjsonlib.add_vulnerability(
                         vuln_code=cve_id,
@@ -171,15 +210,18 @@ class PtVulns:
                         scoring=vector or score,
                         severity=severity,
                         cve=cve_id,
+                        cveUrl=cve_url,
                         cwe=cwe,
+                        exploitAvailable=bool(exploit_references),
+                        exploitReferences=exploit_references,
                     )
                 #self.ptjsonlib.add_node(node)
 
-            if entries:
-                ptprint(f"Retrieved {len(entries)} CVEs for CPE: {cpe}", "INFO", (not self.args.json) and self.args.verbose, colortext=True, newline_above=True, clear_to_eol=True)
+            ptprint(f"CVE statistics: count {stats['count']}, highest severity {stats['highestSeverity']}", "INFO", not self.args.json, colortext=True, newline_above=True, clear_to_eol=True)
 
         if self.args.group_vulns:
             self.ptjsonlib.add_vulnerability(vuln_code="PTV-WEB-SW-KNOWNVULN", displays=grouped_result)
+        self.ptjsonlib.add_properties({"cveStats": cve_stats})
 
         #os.remove(file_path) # remove the file
 
@@ -234,6 +276,85 @@ class PtVulns:
             if isinstance(values, dict) and len(values) == 1:
                 return next(iter(values.values()))
         return value
+
+    def get_sort_key(self, entry):
+        sort_by = self.args.sort_by
+        if sort_by in ("data", "date"):
+            return self.get_entry_value(entry, "date_published") or ""
+        if sort_by == "exploit":
+            return (self.has_exploit_reference(entry), self.to_float(entry["score"]["average"]))
+        if sort_by == "exploitability":
+            return self.to_float(self.get_entry_value(entry, "exploitability_score"))
+        return self.to_float(entry["score"]["average"])
+
+    def has_exploit_reference(self, entry):
+        return bool(self.get_exploit_references(entry))
+
+    def get_exploit_references(self, entry):
+        references = self.get_entry_value(entry, "references") or ""
+        exploit_references = []
+        for reference in references.split(";"):
+            if "(Exploit" not in reference:
+                continue
+            exploit_references.append(reference.split("(", 1)[0].strip())
+        return exploit_references
+
+    def to_float(self, value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def get_cve_stats(self, entries):
+        highest_score = max(
+            (self.to_float(entry.get("score", {}).get("average")) for entry in entries),
+            default=0.0,
+        )
+        return {
+            "count": len(entries),
+            "highestSeverity": self.get_severity(highest_score),
+        }
+
+    def get_db_info(self):
+        db_path = os.path.join(self.app_dirs.get_data_dir(), "cpe-search-dictionary.db3")
+        db_info = {
+            "installed": os.path.isfile(db_path),
+            "path": db_path,
+            "updated": None,
+            "entries": None,
+        }
+
+        if not db_info["installed"]:
+            return db_info
+
+        db_info["updated"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(db_path)))
+
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM cpe_entries")
+            db_info["entries"] = cursor.fetchone()[0]
+            conn.close()
+        except sqlite3.Error:
+            pass
+
+        return db_info
+
+    def print_db_info(self):
+        db_info = self.get_db_info()
+        self.ptjsonlib.add_properties({"cpeDb": db_info})
+
+        if self.args.json:
+            return
+
+        if not db_info["installed"]:
+            ptprint("CPE DB: not installed", "INFO", True, colortext=True)
+            return
+
+        db_info_text = f"CPE DB: installed, updated: {db_info['updated']}, entries: {db_info['entries']}"
+        if self.args.verbose:
+            db_info_text += f", path: {db_info['path']}"
+        ptprint(db_info_text, "INFO", True, colortext=True)
 
     def _get_color_by_score(self, score):
         if score >= 8:
@@ -431,6 +552,8 @@ def get_help():
             ["-s",  "--search",                 "<search>",         "Search string for vulns"],
             ["-vv", "--verbose",                "",                 "Show verbose output"],
             ["-U",  "--update",                "",                  "Update CPE db"],
+            ["-sb", "--sort-by",                "<sort>",            "Sort by: data, exploit, cvss, exploitability"],
+            ["-cn", "--cve-nodes",              "",                  "Return CVEs as nodes instead of vulnerabilities"],
             #["-wd", "--without-details",                "",         "Show CVE without additional requests"],
             ["-gv", "--group-vulns",                "",             "Group vulnerabilities for JSON"],
             ["-v",  "--version",                "",                 "Show script version and exit"],
@@ -447,6 +570,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-j",  "--json",           action="store_true")
     parser.add_argument("-wd",  "--without-details",           action="store_true")
     parser.add_argument("-gv",  "--group-vulns",           action="store_true")
+    parser.add_argument("-sb", "--sort-by", choices=["data", "date", "exploit", "cvss", "exploitability"], default="cvss")
+    parser.add_argument("-cn", "--cve-nodes", action="store_true")
     parser.add_argument("-v",  "--version",        action='version', version=f'{SCRIPTNAME} {__version__}')
 
     parser.add_argument("--socket-address",          type=str, default=None)

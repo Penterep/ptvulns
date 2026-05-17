@@ -196,10 +196,11 @@ def handle_nvd_request(cpe):
     start_time = time.time()
     url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?virtualMatchString={cpe}"
     retries, sleep_time = 8, 5
+    connection_retries, connection_sleep_time = 3, 2
 
     for attempt in range(retries):
         try:
-            response = requests.get(url, timeout=60)
+            response = requests.get(url, timeout=(5, 60))
             if response.status_code == 200:
                 json_data = response.json()
                 logging.info(f"NVD data fetched successfully in {time.time() - start_time:.2f}s")
@@ -208,12 +209,20 @@ def handle_nvd_request(cpe):
                 logging.warning(f"NVD API unavailable (503), retry {attempt + 1}/{retries}")
             else:
                 logging.warning(f"Unexpected status code {response.status_code}, retry {attempt + 1}/{retries}")
+        except (requests.ConnectionError, requests.ConnectTimeout) as e:
+            if attempt < connection_retries - 1:
+                logging.warning(f"NVD is not reachable, retry {attempt + 1}/{connection_retries}: {e}")
+                time.sleep(connection_sleep_time)
+                continue
+            logging.error(f"NVD is not reachable after {connection_retries} attempts: {e}", exc_info=True)
+            return None
         except requests.RequestException as e:
             logging.error(f"NVD request error: {e}", exc_info=True)
         except json.JSONDecodeError:
             logging.error(f"JSON decoding error for CPE {cpe}", exc_info=True)
 
-        time.sleep(sleep_time * (2 ** attempt))
+        if attempt < retries - 1:
+            time.sleep(sleep_time * (2 ** attempt))
 
     logging.error(f"All attempts failed to retrieve NVD data for CPE: {cpe}")
     return None

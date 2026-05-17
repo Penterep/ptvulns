@@ -57,6 +57,11 @@ def parse_find(args):
 
             try:
                 nvd_response = request_handler.handle_nvd_request(value) # response json or none
+                if nvd_response is None:
+                    message = f"Failed to fetch CVE data from NVD for CPE: {value}"
+                    combined_json_report.setdefault("errors", {})[value] = message
+                    combined_json_report[value] = []
+                    continue
                 norm_nvd_response = normalizer.normalize_nvd(nvd_response) # list (parsed cves from json)
                 """
                 if args.without_details:
@@ -145,4 +150,3 @@ def parse_verification(file_path):
     """
     logging.info(f"Starting report verification with file: {file_path}")
     reverifier.reverify(file_path)
-
