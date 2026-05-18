@@ -132,7 +132,8 @@ class PtVulns:
             data = json.load(f)
 
         cpe_list = data.get("cpe_list", [])
-        cve_stats = {}
+        vulnerabilities_count = 0
+        highest_score = 0.0
 
         if self.args.group_vulns:
             grouped_result: str = ""
@@ -140,7 +141,8 @@ class PtVulns:
         for cpe in cpe_list:
             entries = data.get(cpe, [])
             stats = self.get_cve_stats(entries)
-            cve_stats[cpe] = stats
+            vulnerabilities_count += stats["count"]
+            highest_score = max(highest_score, stats["highestScore"])
             #if entries:
             #    self.ptjsonlib.add_vulnerability("PTV-WEB-SW-KNOWNVULN")
             for entry in sorted(entries, key=self.get_sort_key, reverse=True):
@@ -217,11 +219,24 @@ class PtVulns:
                     )
                 #self.ptjsonlib.add_node(node)
 
-            ptprint(f"CVE statistics: count {stats['count']}, highest severity {stats['highestSeverity']}", "INFO", not self.args.json, colortext=True, newline_above=True, clear_to_eol=True)
+            ptprint("CVE statistics", "INFO", not self.args.json, colortext=True, newline_above=True, clear_to_eol=True)
+            ptprint(f"CVE count: {stats['count']}", "INFO", not self.args.json, indent=4)
+            ptprint(
+                f"Highest severity: {self.format_score(stats['highestScore'])} {stats['highestSeverity']}",
+                "INFO",
+                not self.args.json,
+                indent=4,
+            )
 
         if self.args.group_vulns:
             self.ptjsonlib.add_vulnerability(vuln_code="PTV-WEB-SW-KNOWNVULN", displays=grouped_result)
-        self.ptjsonlib.add_properties({"cveStats": cve_stats})
+        description = (
+            f"Vulnerabilities count: {vulnerabilities_count}, "
+            f"highestSeverity: {self.get_severity(highest_score)}"
+        )
+        self.ptjsonlib.add_properties({
+            "description": description,
+        })
 
         #os.remove(file_path) # remove the file
 
@@ -305,6 +320,9 @@ class PtVulns:
         except (TypeError, ValueError):
             return 0.0
 
+    def format_score(self, score):
+        return f"{score:g}".replace(".", ",")
+
     def get_cve_stats(self, entries):
         highest_score = max(
             (self.to_float(entry.get("score", {}).get("average")) for entry in entries),
@@ -312,6 +330,7 @@ class PtVulns:
         )
         return {
             "count": len(entries),
+            "highestScore": highest_score,
             "highestSeverity": self.get_severity(highest_score),
         }
 
@@ -342,7 +361,6 @@ class PtVulns:
 
     def print_db_info(self):
         db_info = self.get_db_info()
-        self.ptjsonlib.add_properties({"cpeDb": db_info})
 
         if self.args.json:
             return
