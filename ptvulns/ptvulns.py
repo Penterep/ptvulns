@@ -279,7 +279,7 @@ class PtVulns:
 
     def get_sort_key(self, entry):
         sort_by = self.args.sort_by
-        if sort_by in ("data", "date"):
+        if sort_by == "date":
             return self.get_entry_value(entry, "date_published") or ""
         if sort_by == "exploit":
             return (self.has_exploit_reference(entry), self.to_float(entry["score"]["average"]))
@@ -552,7 +552,7 @@ def get_help():
             ["-s",  "--search",                 "<search>",         "Search string for vulns"],
             ["-vv", "--verbose",                "",                 "Show verbose output"],
             ["-U",  "--update",                "",                  "Update CPE db"],
-            ["-sb", "--sort-by",                "<sort>",            "Sort by: data, exploit, cvss, exploitability"],
+            ["-sb", "--sort-by",                "<sort>",            "Sort by: date, exploit, cvss, exploitability"],
             ["-cn", "--cve-nodes",              "",                  "Return CVEs as nodes instead of vulnerabilities"],
             #["-wd", "--without-details",                "",         "Show CVE without additional requests"],
             ["-gv", "--group-vulns",                "",             "Group vulnerabilities for JSON"],
@@ -570,7 +570,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-j",  "--json",           action="store_true")
     parser.add_argument("-wd",  "--without-details",           action="store_true")
     parser.add_argument("-gv",  "--group-vulns",           action="store_true")
-    parser.add_argument("-sb", "--sort-by", choices=["data", "date", "exploit", "cvss", "exploitability"], default="cvss")
+    parser.add_argument("-sb", "--sort-by", choices=["date", "exploit", "cvss", "exploitability"], default="cvss")
     parser.add_argument("-cn", "--cve-nodes", action="store_true")
     parser.add_argument("-v",  "--version",        action='version', version=f'{SCRIPTNAME} {__version__}')
 
