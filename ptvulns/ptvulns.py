@@ -72,12 +72,14 @@ class PtVulns:
         if not self.is_cpe(cpe):
             # call string to automat that creates cpe and return the cpe string
             cpe_search_path = os.path.join(self.current_dir, '3rd_party', 'cpe_search', 'cpe_search.py')
-            ptprint(f"Running CPE search:", "TITLE", (not self.args.json) and self.args.verbose, colortext=True)
 
             cpe_args = [sys.executable, cpe_search_path, "-q", self.args.search, "--verbose"]
-            result = self.call_external_script(cpe_args)
+            result = self.call_external_script(cpe_args, live_output=False)
 
             cpe = self.parse_cpe_from_result(result)
+
+        ptprint("Product / CPE", "INFO", not self.args.json, colortext=True, newline_above=True)
+        ptprint(cpe, "TEXT", not self.args.json)
 
         ptprint(f"Running CVE Finder:", "TITLE", not self.args.json and self.args.verbose, colortext=True, newline_above=True, clear_to_eol=True)
         cve_search_path = os.path.join(self.current_dir, '3rd_party', 'cve_finder', '__main__.py')
@@ -107,7 +109,7 @@ class PtVulns:
                 self.ptjsonlib.end_error(f"Failed to process CVE data: {e}", self.args.json)
             self.ptjsonlib.end_ok("0 CVEs found", self.args.json, bullet_type=None)
 
-        ptprint(f"CVE report:", "TITLE", (not self.args.json) and self.args.verbose, colortext=True, newline_above=True, clear_to_eol=True)
+        ptprint("Vulnerabilities (CVE found)", "INFO", not self.args.json, colortext=True, newline_above=True, clear_to_eol=True)
         self.print_cve_report(path)
 
 
@@ -159,7 +161,7 @@ class PtVulns:
                 exploit_references = self.get_exploit_references(entry)
 
                 ptprint(get_colored_text(f"CVE: {cve_id}", "TITLE"), "TEXT", not self.args.json, indent=0)
-                ptprint(f"CVE URL: {cve_url}", "TEXT", not self.args.json, indent=0)
+                ptprint(f"URL: {cve_url}", "TEXT", not self.args.json, indent=0)
                 ptprint(f"Published: {date}", "TEXT", not self.args.json, indent=0)
 
                 #ptprint(f"Exploitability Score: {exploitability_score}", "TEXT", not self.args.json, indent=0)
@@ -220,10 +222,10 @@ class PtVulns:
                 #self.ptjsonlib.add_node(node)
 
             ptprint("CVE statistics", "INFO", not self.args.json, colortext=True, newline_above=True, clear_to_eol=True)
-            ptprint(f"CVE count: {stats['count']}", "INFO", not self.args.json, indent=4)
+            ptprint(f"CVE count: {stats['count']}", "TITLE", not self.args.json, indent=4)
             ptprint(
                 f"Highest severity: {self.format_score(stats['highestScore'])} {stats['highestSeverity']}",
-                "INFO",
+                "TITLE",
                 not self.args.json,
                 indent=4,
             )
@@ -366,13 +368,14 @@ class PtVulns:
             return
 
         if not db_info["installed"]:
-            ptprint("CPE DB: not installed", "INFO", True, colortext=True)
+            ptprint("CPE DB:", "INFO", True, colortext=True)
+            ptprint("Not installed", "TITLE", True, indent=4)
             return
 
-        db_info_text = f"CPE DB: installed, updated: {db_info['updated']}, entries: {db_info['entries']}"
-        if self.args.verbose:
-            db_info_text += f", path: {db_info['path']}"
-        ptprint(db_info_text, "INFO", True, colortext=True)
+        ptprint("CPE DB:", "INFO", True, colortext=True)
+        ptprint("Installed", "TITLE", True, indent=4)
+        ptprint(f"Updated: {db_info['updated']}", "TITLE", True, indent=4)
+        ptprint(f"Entries: {db_info['entries']}", "TITLE", True, indent=4)
 
     def _get_color_by_score(self, score):
         if score >= 8:
@@ -450,7 +453,7 @@ class PtVulns:
         return True
 
 
-    def call_external_script(self, subprocess_args: list) -> str:
+    def call_external_script(self, subprocess_args: list, live_output: bool = True) -> str:
         """
         Run an external script in a pseudo-TTY so TTY-based progress bars render correctly,
         while capturing all output for later use.
@@ -471,7 +474,7 @@ class PtVulns:
         output_lines = []
         buffer = ''
         current_line = ''  # Track the current line being built (for \r handling)
-        do_print = getattr(self.args, "verbose", False) and not getattr(self.args, "json", False)
+        do_print = live_output and getattr(self.args, "verbose", False) and not getattr(self.args, "json", False)
 
         try:
             while True:
