@@ -168,23 +168,28 @@ class PtVulns:
                 severity = "vulnSeverity" + self.get_severity(score)
                 exploit_references = self.get_exploit_references(entry)
 
-                ptprint(get_colored_text(f"CVE: {cve_id}", "TITLE"), "TEXT", not self.args.json, indent=0)
-                ptprint(f"URL: {cve_url}", "TEXT", not self.args.json, indent=0)
-                ptprint(f"Published: {date}", "TEXT", not self.args.json, indent=0)
-
-                #ptprint(f"Exploitability Score: {exploitability_score}", "TEXT", not self.args.json, indent=0)
-                #ptprint(f"CVSS Score: {score}", "TEXT", not self.args.json, indent=0)
-
-                ptprint(f"Exploitability Score: {get_colored_text(exploitability_score, self._get_color_by_score(exploitability_score))}", "TEXT", not self.args.json, indent=0)
-                ptprint(f"CVSS Score: {get_colored_text(score, self._get_color_by_score(score))}", "TEXT", not self.args.json, indent=0)
-                exploit_text = f"Yes ({len(exploit_references)} references)" if exploit_references else "No"
-                ptprint(f"Exploit: {exploit_text}", "TEXT", not self.args.json, indent=0)
-                if exploit_references and self.args.verbose:
-                    for exploit_reference in exploit_references:
-                        ptprint(f"Exploit Reference: {exploit_reference}", "TEXT", not self.args.json, indent=0)
-
-                ptprint(f"CVSS String: {vector}", "TEXT", not self.args.json, indent=0)
-                ptprint(f"Description: {desc}\n", "TEXT", not self.args.json, indent=0)
+                if not self.args.json:
+                    ptprint(
+                        get_colored_text(f"CVE: {cve_id}", "TITLE"),
+                        "TEXT", True, newline_above=True,
+                    )
+                    self.print_console_field("URL", cve_url)
+                    self.print_console_field("Published", date)
+                    self.print_console_field(
+                        "Exploitability Score", exploitability_score,
+                        self._get_color_by_score(exploitability_score),
+                    )
+                    self.print_console_field("CVSS Score", score, self._get_color_by_score(score))
+                    exploit_text = f"Yes ({len(exploit_references)} references)" if exploit_references else "No"
+                    self.print_console_field("Exploit", exploit_text, "OK" if exploit_references else "ADDITIONS")
+                    if exploit_references and self.args.verbose:
+                        for exploit_reference in exploit_references:
+                            self.print_console_field("Exploit Reference", exploit_reference)
+                    self.print_console_field("CVSS String", vector)
+                    ptprint(
+                        self.format_console_description(entry["desc"]["selected"]),
+                        "TEXT", True,
+                    )
 
                 #node = self.ptjsonlib.create_node_object(node_type="cve", properties={"cve": cve_id, "published": date, "score": score, "description": desc})
                 if self.args.group_vulns:
@@ -249,6 +254,41 @@ class PtVulns:
         })
 
         #os.remove(file_path) # remove the file
+
+    def print_console_field(self, label, value, color="TEXT"):
+        """Print compact metadata with a muted label and optional value color."""
+        if self.args.json:
+            return
+        label_text = get_colored_text(f"{label}:", "ADDITIONS")
+        value_text = get_colored_text(value, color) if color != "TEXT" else str(value)
+        ptprint(f"{label_text} {value_text}", "TEXT", True)
+
+    def format_console_description(self, text: str) -> str:
+        """Print optional source sections compactly under a muted Description label."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        label = get_colored_text("Description:", "ADDITIONS")
+        headings = list(re.finditer(
+            r"^[ \t]*(Issue summary|Impact summary|CWE|Description|FIPS Impact)[ \t]*:[ \t]*",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        ))
+        if not headings:
+            return f"{label} {self.format_description(text).strip()}"
+
+        sections = []
+        preamble = self.format_description(text[:headings[0].start()]).strip()
+        if preamble:
+            sections.append(preamble)
+        for index, heading in enumerate(headings):
+            end = headings[index + 1].start() if index + 1 < len(headings) else len(text)
+            body = self.format_description(text[heading.end():end]).strip()
+            body = re.sub(r"\n+", " ", body)
+            heading_text = get_colored_text(heading[1] + ":", "ADDITIONS")
+            sections.append(f"{heading_text} {body}".rstrip())
+
+        # Each recognized section is one text block on its own line.
+        lines = "\n".join(sections).split("\n")
+        return label + "\n" + "\n".join("  " + line if line else "" for line in lines)
 
     @staticmethod
     def format_description(text: str) -> str:
