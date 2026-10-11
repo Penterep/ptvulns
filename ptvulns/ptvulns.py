@@ -29,6 +29,7 @@ import pty
 import select
 import subprocess
 import sqlite3
+import re
 import sys; sys.path.append(__file__.rsplit("/", 1)[0])
 
 from types import ModuleType
@@ -100,13 +101,20 @@ class PtVulns:
                     self.ptjsonlib.end_error("; ".join(errors.values()), self.args.json)
 
                 cpe_list = data.get("cpe_list", [])
-                has_cves = any(data.get(cpe) for cpe in cpe_list)
-                
-                if not has_cves:
-                    self.ptjsonlib.end_ok("0 CVEs found", self.args.json, bullet_type=None)
+                cve_count = sum(len(data.get(report_cpe, [])) for report_cpe in cpe_list)
         except (FileNotFoundError, json.JSONDecodeError) as e:
             if "Retrieved 0 CVEs".lower() not in result.lower():
                 self.ptjsonlib.end_error(f"Failed to process CVE data: {e}", self.args.json)
+            cve_count = 0
+
+        if self.args.json and not self.has_exact_cpe_version(cpe):
+            self.ptjsonlib.end_error(
+                f"CPE does not contain an exact software version. "
+                f"A total of {cve_count} CVE records were found for this product.",
+                self.args.json,
+            )
+
+        if not cve_count:
             self.ptjsonlib.end_ok("0 CVEs found", self.args.json, bullet_type=None)
 
         ptprint("Vulnerabilities (CVE found)", "INFO", not self.args.json, colortext=True, newline_above=True, clear_to_eol=True)
@@ -451,6 +459,14 @@ class PtVulns:
             return False
 
         return True
+
+
+    def has_exact_cpe_version(self, cpe: str) -> bool:
+        """Require a concrete version without unescaped CPE wildcard characters."""
+        if not self.is_cpe(cpe):
+            return False
+        version = cpe.split(":")[5]
+        return version != "-" and re.fullmatch(r"(?:\\.|[^*?\\])+", version) is not None
 
 
     def call_external_script(self, subprocess_args: list, live_output: bool = True) -> str:
