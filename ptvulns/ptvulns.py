@@ -161,7 +161,7 @@ class PtVulns:
                 date = entry["date_published"]["selected"].split("T")[0]
                 score = entry["score"]["average"]
                 exploitability_score = entry["exploitability_score"]["selected"]["selected"]
-                desc = entry["desc"]["selected"]
+                desc = self.format_description(entry["desc"]["selected"])
                 #vector = (lambda d: {next(iter(d)): d[next(iter(d))]} if d else None)(entry["vector"].get("values", {}))
                 vector = next(iter(entry["vector"].get("values", {}).values()), None)
                 cwe = entry["cwe_id"][0].get("id") if entry.get("cwe_id") else None
@@ -249,6 +249,16 @@ class PtVulns:
         })
 
         #os.remove(file_path) # remove the file
+
+    @staticmethod
+    def format_description(text: str) -> str:
+        """Join wrapped lines while preserving paragraph breaks."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        return re.sub(
+            r"[ \t]*\n(?:[ \t]*\n)*[ \t]*",
+            lambda match: "\n" * match[0].count("\n") if match[0].count("\n") > 1 else " ",
+            text,
+        )
 
     def build_causes(self, entry):
         affected_versions = self.get_entry_value(entry, "affected_versions")
